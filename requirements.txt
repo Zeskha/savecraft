@@ -1,0 +1,2 @@
+pyshortcuts~=1.8.3
+Pillow~=8.4.0
