@@ -8,9 +8,9 @@ from ctypes import windll
 from PIL import Image
 import datetime
 import webbrowser
+import time
 
 class MainWindow(tk.Frame):
-
     def __init__(self, master=None):
         super().__init__(master)
         self.master = master
@@ -19,7 +19,7 @@ class MainWindow(tk.Frame):
         self.create_widgets(font)
         self.load_saved_paths()
         
-        self.file_type = 'file'
+        self.file_type = 'folder'
         self.date = False
         self.shortcut = False
 
@@ -139,13 +139,13 @@ class MainWindow(tk.Frame):
                 self.file_type = 'folder'
             elif combo.get() == 'Zipped folder':
                 self.file_type = 'zfolder'
-            if date.get() is False:
+            if not date.get():
                 self.date = False
-            elif date.get() is True:
+            elif date.get():
                 self.date = True
-            if shortcut.get() is False:
+            if not shortcut.get():
                 self.shortcut = False
-            elif shortcut.get() is True:
+            elif shortcut.get():
                 self.shortcut = True
 
             floating_window.unbind('<Destroy>')
@@ -183,7 +183,7 @@ class MainWindow(tk.Frame):
         spacing1.pack()
 
         date = tk.BooleanVar()
-        date.set(False)
+        date.set(self.date)
         date_cb = tk.Checkbutton(floating_window, text="Add date to the name of the file              ",
                                  variable=date, font=(letter_font, 14))
         date_cb.pack()
@@ -192,7 +192,7 @@ class MainWindow(tk.Frame):
         spacing2.pack()
 
         shortcut = tk.BooleanVar()
-        shortcut.set(False)
+        shortcut.set(self.shortcut)
         shortcut_cb = tk.Checkbutton(floating_window, text="Create a desktop shortcut for this world ",
                                      variable=shortcut, font=(letter_font, 14))
         shortcut_cb.pack()
@@ -249,6 +249,16 @@ class MainWindow(tk.Frame):
             with open(last_directory, 'r') as file:
                 data = file.read()
                 paths = data.splitlines()
+
+                self.path_entry2.configure(state='normal')
+                self.path_entry2.delete(0, tk.END)
+                try:
+                    self.path_entry2.insert(0, paths[1])
+                except IndexError:
+                    return
+                finally:
+                    self.path_entry2.configure(state='readonly')
+
                 self.path_entry.configure(state='normal')
                 self.path_entry.delete(0, tk.END)
                 try:
@@ -257,31 +267,44 @@ class MainWindow(tk.Frame):
                     pass
                 self.path_entry.configure(state='readonly')
 
-                self.path_entry2.configure(state='normal')
-                self.path_entry2.delete(0, tk.END)
-                try:
-                    self.path_entry2.insert(0, paths[1])
-                except IndexError:
-                    pass
-                self.path_entry2.configure(state='readonly')
+                
 
     def load_sw_file(self, sw):
         # Opens and reads the sw file specified depending on the quick acces that has been opened
         swfile = os.path.join(os.environ["TEMP"], 'savecraft', sw)
-        with open(swfile, 'r') as file:
-            data = file.read()
+        if os.path.exists(swfile):
+            with open(swfile, 'r') as file:
+                data = file.read()
+        else:
+            return
         info = data.splitlines()
         world, target, file_type, date = info
+        if date == 'False':
+            date = False
         return world, target, file_type, date
 
 
     def create_shortcut_icon(self, world_name, i):
         # Creates the shortcut icon based on the orignal world icon
-        img1 = Image.open(os.path.join(application_path, 'icon2.png'))
-        img2 = Image.open(os.path.join(os.getenv('APPDATA'), fr'.minecraft\saves\{world_name}\icon.png'))
+        try:
+            img1 = Image.open(os.path.join(os.getenv('APPDATA'), fr'.minecraft\saves\{world_name}\icon.png'))
+        except FileNotFoundError:
+            try:
+                img2 = Image.open(os.path.join(application_path, 'icon2.png'))
+                img2.save(os.path.join(os.environ['TEMP'], 'savecraft', f'icon{i}.ico'))
+                return
+            except FileNotFoundError:
+                return
+                
+        try:
+            img2 = Image.open(os.path.join(application_path, 'icon2.png'))
+        except FileNotFoundError:
+            img1.save(os.path.join(os.environ['TEMP'], 'savecraft', f'icon{i}.ico'))
+            return 
 
-        result = Image.alpha_composite(img2.convert('RGBA'), img1)
+        result = Image.alpha_composite(img1.convert('RGBA'), img2)
         result.save(os.path.join(os.environ['TEMP'], 'savecraft', f'icon{i}.ico'))
+    
 
     def create_shortcut(self, i, world_name):
         # Creates a quick acces with an argument starting from 0
@@ -292,81 +315,80 @@ class MainWindow(tk.Frame):
 
         shortcut_path = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop', f'{world_name} SaveCraft')
         shortcut_destiny = f'{path_to_exe} {argument}'
-
+      
         ps.make_shortcut(name=shortcut_path, script=shortcut_destiny,
                          icon=os.path.join(os.environ['TEMP'], 'savecraft', f'icon{i}.ico'))
 
     def save_as_dir(self, world_name, target, date):
         # copies files to the destiny if the modification time is different
+        world_name_target = os.path.join(target, f"{world_name}{date}")
         minecraft = os.path.join(os.environ['appdata'], fr'.minecraft\saves\{world_name}')
 
-        if date is None:
             # check if the worlds exists in the target
-            if os.path.exists(os.path.join(target, world_name)):
-                hello = True
-                bye = False
-                list_with_dirs = [""]
-                while hello:
-                    try:
-                        actual_dir = list_with_dirs[0]
-                        list_with_dirs.remove(list_with_dirs[0])
+        if os.path.exists(os.path.join(target, f'{world_name}{date}')):
+            hello = True
+            bye = False
+            list_with_dirs = [""]
+            while hello:
+                try:
+                    actual_dir = list_with_dirs[0]
+                    list_with_dirs.remove(list_with_dirs[0])
 
-                        for directory in os.listdir(os.path.join(minecraft, actual_dir)):
-                            # Check if directory is a file
+                    for directory in os.listdir(os.path.join(minecraft, actual_dir)):
+                        # Check if directory is a file
 
-                            if os.path.isfile(os.path.join(minecraft, actual_dir, directory)):
-                                # If the directory is a file, check if file exists on target
+                        if os.path.isfile(os.path.join(minecraft, actual_dir, directory)):
+                            # If the directory is a file, check if file exists on target
 
-                                if os.path.exists(os.path.join(target, world_name, actual_dir, directory)):
-                                    # If exists, check if the modification date of source and the target is the same
+                            if os.path.exists(os.path.join(world_name_target, actual_dir, directory)):
+                                # If exists, check if the modification date of source and the target is the same
 
-                                    if (os.path.getmtime(os.path.join(minecraft, actual_dir, directory)) is not
-                                            os.path.getmtime(os.path.join(target, world_name, actual_dir, directory))):
-                                        # If it's not the same copy the source file to the target
+                                if (os.path.getmtime(os.path.join(minecraft, actual_dir, directory)) is not
+                                        os.path.getmtime(os.path.join(world_name_target, actual_dir, directory))):
+                                    # If it's not the same copy the source file to the target
 
-                                        shutil.copyfile(os.path.join(minecraft, actual_dir, directory),
-                                                        os.path.join(target, world_name, actual_dir, directory))
-
-                                else:
-                                    # If it doesn't exist, copy the source file to the target
                                     shutil.copyfile(os.path.join(minecraft, actual_dir, directory),
-                                                    os.path.join(target, world_name, actual_dir, directory))
+                                                    os.path.join(world_name_target, actual_dir, directory))
 
                             else:
-                                list_with_dirs.append(os.path.join(actual_dir, directory))
+                                # If it doesn't exist, copy the source file to the target
+                                shutil.copyfile(os.path.join(minecraft, actual_dir, directory),
+                                                os.path.join(world_name_target, actual_dir, directory))
 
-                                if os.path.exists(os.path.join(target, world_name, actual_dir, directory)):
-                                    pass
-                                else:
-                                    os.mkdir(os.path.join(target, world_name, actual_dir, directory))
+                        else:
+                            list_with_dirs.append(os.path.join(actual_dir, directory))
 
-                    except IndexError:
-                        hello = bye
-            else:
-                shutil.copytree(os.path.join(minecraft), os.path.join(target, world_name))
+                            if os.path.exists(os.path.join(world_name_target, actual_dir, directory)):
+                                pass
+                            else:
+                                os.mkdir(os.path.join(world_name_target, actual_dir, directory))
 
-        elif date is not None:
-            shutil.copytree(os.path.join(minecraft), os.path.join(target, world_name + date))
+                except IndexError:
+                    hello = bye
+        else:
+            shutil.copytree(os.path.join(minecraft), world_name_target)
+
+        
 
     def save_as_zip(self, world_name, target, date):
         minecraft = os.path.join(os.environ['appdata'], fr'.minecraft\saves\{world_name}')
-        if date is None:
+        if not date:
             shutil.make_archive(os.path.join(target, world_name), 'zip', os.path.join(minecraft))
-        elif date is not None:
+        elif date:
             shutil.make_archive(os.path.join(target, world_name + date), 'zip', os.path.join(minecraft))
 
     def copy_world_process(self, world_name, target, file_type, date):
         if file_type == 'folder':
-            if date is False:
-                self.save_as_dir(world_name, target, None)
-            elif date is True:
+            if not date:
+                self.save_as_dir(world_name, target, "")
+            elif date:
                 today_date = datetime.date.today().strftime(' %d-%m-%Y')
                 self.save_as_dir(world_name, target, today_date)
 
         elif file_type == 'zfolder':
-            if date is False:
-                self.save_as_zip(world_name, target, None)
-            elif date is True:
+            if not date:
+                self.save_as_zip(world_name, target, "")
+            elif date:
                 today_date = datetime.date.today().strftime(' %d-%m-%Y')
                 self.save_as_zip(world_name, target, today_date)
 
@@ -380,22 +402,15 @@ class MainWindow(tk.Frame):
         if world_name != '' and target != '':
             if self.shortcut:
                 tempdir = os.path.join(os.environ["TEMP"], 'savecraft')
-                if os.path.exists(tempdir):
-                    pass
-                else:
+                if not os.path.exists(tempdir):
                     os.mkdir(tempdir)
-
-                worlds = [item for item in os.listdir(tempdir) if item.endswith('.txt')]
-
-                for i, world in enumerate(worlds):
-                    if world == f"sw{i}.txt":
-                        pass
-                    else:
-                        break
-
-                try:
-                    i += 1
-                except NameError:
+                                 
+                worlds = sorted([item for item in os.listdir(tempdir) if item.endswith('.txt')])
+                if worlds:
+                    for i, world in enumerate(worlds):
+                        if world != f"sw{i}.txt":
+                            break                     
+                else:
                     i = 0
 
                 with open(os.path.join(tempdir, f'sw{i}.txt'), 'w') as sf:
@@ -410,13 +425,12 @@ class MainWindow(tk.Frame):
         # Loads saved world name and destiny path or start saving if has been opened from a shortcut
         if len(sys.argv) > 1:
             tempdir = os.path.join(os.environ["TEMP"], 'savecraft')
-            for world in os.listdir(tempdir):
-                for arg in sys.argv[1:]:
-                    if f'--{world}' == f'{arg}.txt':
-                        world_name, target, file_type, date = self.load_sw_file(world)
-
-                        self.copy_world_process(world_name, target, file_type, bool(date))
-                        break
+            worlds = os.listdir(tempdir)
+            for i, arg in enumerate(sys.argv[1:]):
+                if f"{arg[2:]}.txt" in worlds:
+                    world_name, target, file_type, date = self.load_sw_file(f"{arg[2:]}.txt")
+                    self.copy_world_process(world_name, target, file_type, bool(date))
+                    
         else:
             windll.shcore.SetProcessDpiAwareness(1)
             app.mainloop()
@@ -430,9 +444,11 @@ if __name__ == '__main__':
         application_path = sys._MEIPASS
     elif __file__:
         application_path = os.path.dirname(__file__)
-
-    root.iconbitmap(default=os.path.join(application_path, 'icon.ico'))
-
+    
+    try:
+        root.iconbitmap(default=os.path.join(application_path, 'icon.ico'))
+    except tk.TclError:
+        pass
     your_font = font.nametofont("TkDefaultFont")  # Get default font value into Font object
     font = your_font.actual()
 
